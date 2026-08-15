@@ -94,6 +94,11 @@ function Extract-CompleteTaskIntent ($userMsg, $tasksList) {
 
     $lower = $userMsg.ToLower()
 
+    # Creation request guard: if user message is a task creation request, do NOT run completion matching!
+    if ($lower -match '^\s*(create|add|new)\b' -or $lower -match '\b(create|add)\s+(a\s+)?(new\s+)?task\b') {
+        return $null
+    }
+
     # Check if user message contains completion keywords
     $isCompleteIntent = ($lower -match '\b(mark|complete|completed|finish|finished|done)\b')
     if (-not $isCompleteIntent) {
@@ -123,8 +128,8 @@ function Extract-CompleteTaskIntent ($userMsg, $tasksList) {
         }
     }
 
-    # 3. Fallback to first available task
-    return $tasksList[0]
+    # Return null if no matching task title found
+    return $null
 }
 
 function Process-AiChat {
@@ -170,6 +175,7 @@ MOOD HEURISTICS:
 - Calm: Recommend steady organization and scheduling Q2 tasks.
 
 TASK ACTION FORMATTING RULES:
+For creation requests starting with 'Create', 'Add', or 'New Task', ALWAYS generate type 'CREATE_TASK'.
 For completion requests like 'Mark X as completed' or 'Complete X', match X against the existing tasks list and return type 'TOGGLE_TASK' with data.id set to the matching task ID.
 When extracting task titles for CREATE_TASK, return CLEAN titles without prefixes like 'called' or trailing phrases like 'and put in Q2'.
 
@@ -193,8 +199,6 @@ You MUST respond ONLY with a single raw valid JSON object:
 "@
 
             $contentsList = [System.Collections.ArrayList]::new()
-
-            # Format multi-turn conversation history
             foreach ($item in $history) {
                 $roleStr = if ($item.role -eq 'user') { "user" } else { "model" }
                 [void]$contentsList.Add(@{
@@ -285,18 +289,7 @@ You MUST respond ONLY with a single raw valid JSON object:
                      "- Breakdown: Q1 Do First: $q1 | Q2 Schedule: $q2 | Q3 Delegate: $q3 | Q4 Eliminate: $q4`n`n" +
                      "Tip: Keep Q1 low by scheduling important tasks into Q2 ahead of time!"
     }
-    # 2. Task Completion Intent
-    elseif ($completedTask = Extract-CompleteTaskIntent -userMsg $userMsg -tasksList $tasksList) {
-        [void]$actionsList.Add(@{
-            type = "TOGGLE_TASK"
-            data = @{
-                id = $completedTask.id
-                title = $completedTask.title
-            }
-        })
-        $replyText = "I've prepared an action to mark '$($completedTask.title)' as completed. Please review and confirm below."
-    }
-    # 3. Task Creation Intent
+    # 2. Task Creation Intent (Checked BEFORE completion intent so creation is never intercepted)
     elseif ($lowerMsg -like "*add *" -or $lowerMsg -like "*create *" -or $lowerMsg -like "*new task*") {
         $extracted = Extract-TaskTitleAndQuadrant -userMsg $userMsg
         $taskTitle = $extracted.title
@@ -312,6 +305,17 @@ You MUST respond ONLY with a single raw valid JSON object:
             }
         })
         $replyText = "I've prepared a proposed action to create '$taskTitle' in $($targetQuad.ToUpper()). Please review and confirm below."
+    }
+    # 3. Task Completion Intent
+    elseif ($completedTask = Extract-CompleteTaskIntent -userMsg $userMsg -tasksList $tasksList) {
+        [void]$actionsList.Add(@{
+            type = "TOGGLE_TASK"
+            data = @{
+                id = $completedTask.id
+                title = $completedTask.title
+            }
+        })
+        $replyText = "I've prepared an action to mark '$($completedTask.title)' as completed. Please review and confirm below."
     }
     # 4. Task Deletion Intent
     elseif ($lowerMsg -like "*delete *" -or $lowerMsg -like "*remove *") {

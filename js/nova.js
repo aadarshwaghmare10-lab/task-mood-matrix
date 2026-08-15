@@ -71,7 +71,7 @@ export class NovaAssistant {
         } else if (prompt) {
           if (this.input) {
             this.input.value = prompt;
-            this.handleSend();
+            this.handleSend(null, true);
           }
         }
       });
@@ -148,7 +148,7 @@ export class NovaAssistant {
     }
   }
 
-  async handleSend(retryText = null) {
+  async handleSend(retryText = null, isQuickChip = false) {
     if (!this.input) return;
     const text = retryText || this.input.value.trim();
     if (!text) return;
@@ -174,6 +174,8 @@ export class NovaAssistant {
 
     try {
       const context = this.getNovaContext();
+      const historyPayload = isQuickChip ? [] : this.chatHistory;
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -182,7 +184,7 @@ export class NovaAssistant {
         body: JSON.stringify({
           message: text,
           context: context,
-          history: this.chatHistory
+          history: historyPayload
         })
       });
 
