@@ -99,6 +99,7 @@
           <div class="quadrant-title">
             <span class="quadrant-badge">Q1</span>
             <h3>Do First</h3>
+            <span class="quadrant-count" id="count-q1">0</span>
           </div>
           <span class="quadrant-tag">Urgent & Important</span>
         </div>
@@ -111,6 +112,7 @@
           <div class="quadrant-title">
             <span class="quadrant-badge">Q2</span>
             <h3>Schedule</h3>
+            <span class="quadrant-count" id="count-q2">0</span>
           </div>
           <span class="quadrant-tag">Important, Not Urgent</span>
         </div>
@@ -123,6 +125,7 @@
           <div class="quadrant-title">
             <span class="quadrant-badge">Q3</span>
             <h3>Delegate</h3>
+            <span class="quadrant-count" id="count-q3">0</span>
           </div>
           <span class="quadrant-tag">Urgent, Not Important</span>
         </div>
@@ -135,6 +138,7 @@
           <div class="quadrant-title">
             <span class="quadrant-badge">Q4</span>
             <h3>Eliminate</h3>
+            <span class="quadrant-count" id="count-q4">0</span>
           </div>
           <span class="quadrant-tag">Not Urgent or Important</span>
         </div>
@@ -220,6 +224,48 @@
         <button id="btn-edit-detail" class="btn btn-secondary">✏️ Edit Task</button>
         <button id="btn-done-detail" class="btn btn-primary">Close</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Floating AI Assistant Trigger Button -->
+  <button id="btn-nova-toggle" class="nova-floating-btn" aria-label="Ask NOVA Productivity Assistant" aria-expanded="false" title="Ask NOVA">
+    <span class="nova-btn-icon">🤖</span>
+    <span class="nova-btn-label">Ask NOVA</span>
+  </button>
+
+  <!-- NOVA AI Assistant Chat Modal / Overlay -->
+  <div class="nova-overlay" id="nova-modal" aria-hidden="true" role="dialog" aria-labelledby="nova-title">
+    <div class="nova-window" role="document">
+      <!-- Header -->
+      <div class="nova-header">
+        <div class="nova-header-brand">
+          <div class="nova-avatar-icon">🤖</div>
+          <div>
+            <h3 id="nova-title" class="nova-title">NOVA</h3>
+            <p class="nova-subtitle">Your Productivity Assistant</p>
+          </div>
+        </div>
+        <button id="btn-nova-close" class="btn-close" aria-label="Close NOVA assistant">&times;</button>
+      </div>
+
+      <!-- Scrollable Message Area -->
+      <div class="nova-messages" id="nova-messages" role="log" aria-live="polite">
+        <div class="nova-msg nova-msg-assistant">
+          <div class="nova-msg-avatar">🤖</div>
+          <div class="nova-msg-bubble">Hi! I'm NOVA 👋<br>Your productivity assistant.<br><br>Tell me what you need to get done, and I'll help you organize it.</div>
+        </div>
+      </div>
+
+      <!-- Message Input Bar -->
+      <form id="nova-form" class="nova-input-bar">
+        <textarea id="nova-input" class="nova-textarea" placeholder="Tell NOVA what you need to do..." rows="1" aria-label="Type your message to NOVA"></textarea>
+        <button type="submit" id="btn-nova-send" class="nova-send-btn" aria-label="Send message to NOVA">
+          <span>➔</span>
+        </button>
+      </form>
     </div>
   </div>
 

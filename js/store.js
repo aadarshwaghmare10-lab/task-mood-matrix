@@ -131,6 +131,16 @@ class Store {
     return null;
   }
 
+  updateTaskQuadrant(id, newQuadrant) {
+    const task = this.getTaskById(id);
+    if (task && task.quadrant !== newQuadrant) {
+      task.quadrant = newQuadrant;
+      this.saveTasks();
+      return task;
+    }
+    return null;
+  }
+
   toggleTaskComplete(id) {
     const task = this.getTaskById(id);
     if (task) {
@@ -141,13 +151,28 @@ class Store {
   }
 
   deleteTask(id) {
-    this.tasks = this.tasks.filter(t => t.id !== id);
-    this.saveTasks();
+    const taskToDelete = this.getTaskById(id);
+    if (taskToDelete) {
+      this.tasks = this.tasks.filter(t => t.id !== id);
+      this.saveTasks();
+    }
+    return taskToDelete;
+  }
+
+  restoreTask(task) {
+    if (!task || !task.id) return;
+    const exists = this.getTaskById(task.id);
+    if (!exists) {
+      this.tasks.unshift(task);
+      this.saveTasks();
+    }
   }
 
   clearCompleted() {
+    const clearedTasks = this.tasks.filter(t => t.completed);
     this.tasks = this.tasks.filter(t => !t.completed);
     this.saveTasks();
+    return clearedTasks;
   }
 
   getStats() {
@@ -155,6 +180,20 @@ class Store {
     const completed = this.tasks.filter(t => t.completed).length;
     const score = total > 0 ? Math.round((completed / total) * 100) : 0;
     return { total, completed, score };
+  }
+
+  getNovaContext() {
+    return {
+      mood: this.currentMood,
+      tasks: this.tasks.map(t => ({
+        id: t.id,
+        title: t.title,
+        description: t.description || '',
+        quadrant: t.quadrant,
+        completed: Boolean(t.completed),
+        createdAt: t.createdAt ? new Date(t.createdAt).toISOString() : new Date().toISOString()
+      }))
+    };
   }
 }
 
