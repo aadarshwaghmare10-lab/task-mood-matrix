@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Task & Mood Matrix - Dynamic productivity workspace combining the Eisenhower Matrix with mood analytics.">
+  <title>Task & Mood Matrix</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body data-mood="focused">
+  <div class="app-background">
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+  </div>
+
+  <div class="container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="logo-icon">✨</div>
+        <div>
+          <h1 class="app-title">Task & Mood Matrix</h1>
+          <p class="app-subtitle">Harmonize your productivity with state of mind</p>
+        </div>
+      </div>
+      
+      <!-- Quick Stats Widget -->
+      <div class="stats-bar">
+        <div class="stat-card">
+          <span class="stat-label">Tasks Done</span>
+          <span id="stat-completed" class="stat-value">0 / 0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Productivity</span>
+          <span id="stat-score" class="stat-value">0%</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Current State</span>
+          <span id="stat-mood" class="stat-value mood-badge">🎯 Focused</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Mood Selector Section -->
+    <section class="mood-section" aria-label="Mood Selector">
+      <div class="section-title-wrap">
+        <h2>How are you feeling right now?</h2>
+        <span class="subtitle">Select your mood to adapt the workspace ambiance</span>
+      </div>
+      <div class="mood-selector" id="mood-selector">
+        <button class="mood-btn active" data-mood="focused">
+          <span class="mood-emoji">🎯</span>
+          <span class="mood-name">Focused</span>
+        </button>
+        <button class="mood-btn" data-mood="productive">
+          <span class="mood-emoji">🚀</span>
+          <span class="mood-name">Productive</span>
+        </button>
+        <button class="mood-btn" data-mood="calm">
+          <span class="mood-emoji">🌊</span>
+          <span class="mood-name">Calm</span>
+        </button>
+        <button class="mood-btn" data-mood="energized">
+          <span class="mood-emoji">⚡</span>
+          <span class="mood-name">Energized</span>
+        </button>
+        <button class="mood-btn" data-mood="stressed">
+          <span class="mood-emoji">🌩️</span>
+          <span class="mood-name">Stressed</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Controls Bar -->
+    <div class="controls-bar">
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search-input" placeholder="Search tasks..." aria-label="Search tasks">
+      </div>
+      <div class="actions">
+        <button id="btn-open-modal" class="btn btn-primary">
+          <span class="btn-icon">+</span> Add New Task
+        </button>
+        <button id="btn-clear-completed" class="btn btn-secondary">
+          Clear Completed
+        </button>
+      </div>
+    </div>
+
+    <!-- Eisenhower Matrix (4 Quadrants) -->
+    <main class="matrix-grid">
+      <!-- Quadrant 1: Urgent & Important -->
+      <section class="quadrant q-urgent-important" id="quadrant-q1">
+        <div class="quadrant-header">
+          <div class="quadrant-title">
+            <span class="quadrant-badge">Q1</span>
+            <h3>Do First</h3>
+          </div>
+          <span class="quadrant-tag">Urgent & Important</span>
+        </div>
+        <div class="task-list" id="list-q1" data-quadrant="q1"></div>
+      </section>
+
+      <!-- Quadrant 2: Important & Not Urgent -->
+      <section class="quadrant q-important-noturgent" id="quadrant-q2">
+        <div class="quadrant-header">
+          <div class="quadrant-title">
+            <span class="quadrant-badge">Q2</span>
+            <h3>Schedule</h3>
+          </div>
+          <span class="quadrant-tag">Important, Not Urgent</span>
+        </div>
+        <div class="task-list" id="list-q2" data-quadrant="q2"></div>
+      </section>
+
+      <!-- Quadrant 3: Urgent & Not Important -->
+      <section class="quadrant q-urgent-notimportant" id="quadrant-q3">
+        <div class="quadrant-header">
+          <div class="quadrant-title">
+            <span class="quadrant-badge">Q3</span>
+            <h3>Delegate</h3>
+          </div>
+          <span class="quadrant-tag">Urgent, Not Important</span>
+        </div>
+        <div class="task-list" id="list-q3" data-quadrant="q3"></div>
+      </section>
+
+      <!-- Quadrant 4: Neither -->
+      <section class="quadrant q-neither" id="quadrant-q4">
+        <div class="quadrant-header">
+          <div class="quadrant-title">
+            <span class="quadrant-badge">Q4</span>
+            <h3>Eliminate</h3>
+          </div>
+          <span class="quadrant-tag">Not Urgent or Important</span>
+        </div>
+        <div class="task-list" id="list-q4" data-quadrant="q4"></div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>Built with Antigravity • Demonstrating file operations, CLI tools & live verification</p>
+    </footer>
+  </div>
+
+  <!-- Modal for Adding/Editing Tasks -->
+  <div class="modal-overlay" id="task-modal" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">Create New Task</h3>
+        <button id="btn-close-modal" class="btn-close" aria-label="Close modal">&times;</button>
+      </div>
+      <form id="task-form">
+        <input type="hidden" id="task-id">
+        <div class="form-group">
+          <label for="task-title-input">Task Title *</label>
+          <input type="text" id="task-title-input" placeholder="e.g. Complete project proposal draft" required>
+        </div>
+
+        <div class="form-group">
+          <label for="task-desc-input">Description / Notes</label>
+          <textarea id="task-desc-input" rows="3" placeholder="Add optional details or subtasks..."></textarea>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="task-quadrant-input">Priority (Quadrant)</label>
+            <select id="task-quadrant-input">
+              <option value="q1">Q1: Do First (Urgent & Important)</option>
+              <option value="q2" selected>Q2: Schedule (Important, Not Urgent)</option>
+              <option value="q3">Q3: Delegate (Urgent, Not Important)</option>
+              <option value="q4">Q4: Eliminate (Not Urgent or Important)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="task-mood-input">Associated Energy</label>
+            <select id="task-mood-input">
+              <option value="focused">🎯 Deep Focus</option>
+              <option value="productive">🚀 High Productivity</option>
+              <option value="calm">🌊 Calm Flow</option>
+              <option value="energized">⚡ Quick Sprint</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" id="btn-cancel-modal" class="btn btn-secondary">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Task</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal for Task Details -->
+  <div class="modal-overlay" id="task-detail-modal" aria-hidden="true">
+    <div class="modal-content detail-modal-content">
+      <div class="modal-header">
+        <div class="detail-header-badges">
+          <span id="detail-quadrant" class="quadrant-badge">Q1</span>
+          <span id="detail-mood" class="mood-badge">🎯 Focused</span>
+          <span id="detail-status" class="status-badge">In Progress</span>
+        </div>
+        <button id="btn-close-detail" class="btn-close" aria-label="Close detail modal">&times;</button>
+      </div>
+      <div class="detail-body">
+        <h2 id="detail-title" class="detail-title">Task Title</h2>
+        <p id="detail-desc" class="detail-desc">Task description goes here...</p>
+        <div class="detail-meta">
+          <span class="meta-label">Created:</span>
+          <span id="detail-date" class="meta-value">Aug 11, 2026</span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-edit-detail" class="btn btn-secondary">✏️ Edit Task</button>
+        <button id="btn-done-detail" class="btn btn-primary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
