@@ -1494,3 +1494,105 @@ select:focus-visible,
   opacity: 0.95;
   transform: translateY(-1px);
 }
+
+/* Phase 4: Quick Suggestion Chips Bar */
+.nova-chips-bar {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  overflow-x: auto;
+  background: rgba(15, 23, 42, 0.6);
+  border-top: 1px solid var(--border-color);
+  scrollbar-width: none;
+}
+
+.nova-chips-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.nova-chip {
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.nova-chip:hover {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: var(--border-color-focus);
+  color: #a5b4fc;
+  transform: translateY(-1px);
+}
+
+.nova-chip-clear:hover {
+  background: rgba(244, 63, 94, 0.18);
+  border-color: rgba(244, 63, 94, 0.4);
+  color: #fda4af;
+}
+
+/* Error Card & Retry Control */
+.nova-error-card {
+  margin-top: 0.5rem;
+  background: rgba(244, 63, 94, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 1rem;
+  color: #fecdd3;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.nova-retry-btn {
+  align-self: flex-start;
+  background: rgba(244, 63, 94, 0.25);
+  color: #ffffff;
+  border: 1px solid rgba(244, 63, 94, 0.5);
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.nova-retry-btn:hover {
+  background: rgba(244, 63, 94, 0.4);
+}
+
+/* Animated Typing Dots */
+.nova-typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 2px;
+}
+
+.nova-typing-dots span {
+  width: 6px;
+  height: 6px;
+  background: var(--mood-primary);
+  border-radius: 50%;
+  animation: novaPulse 1.4s infinite ease-in-out both;
+}
+
+.nova-typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.nova-typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes novaPulse {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}

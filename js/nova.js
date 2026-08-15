@@ -1,5 +1,5 @@
 /**
- * nova.js - NOVA AI Productivity Assistant
+ * nova.js - NOVA AI Productivity Assistant (Phase 4 Production Polish)
  * Floating chat interface for Task & Mood Matrix
  */
 
@@ -10,6 +10,7 @@ export class NovaAssistant {
     this.isOpen = false;
     this.ui = null;
     this.chatHistory = [];
+    this.lastFailedMessage = null;
 
     // Cache DOM Elements
     this.toggleBtn = document.getElementById('btn-nova-toggle');
@@ -19,6 +20,7 @@ export class NovaAssistant {
     this.input = document.getElementById('nova-input');
     this.sendBtn = document.getElementById('btn-nova-send');
     this.messagesContainer = document.getElementById('nova-messages');
+    this.chipsContainer = document.getElementById('nova-chips');
   }
 
   init(ui = null) {
@@ -52,6 +54,26 @@ export class NovaAssistant {
       this.form.addEventListener('submit', (e) => {
         e.preventDefault();
         this.handleSend();
+      });
+    }
+
+    // Quick Suggestion Chips click listener
+    if (this.chipsContainer) {
+      this.chipsContainer.addEventListener('click', (e) => {
+        const chip = e.target.closest('.nova-chip');
+        if (!chip) return;
+
+        const action = chip.dataset.action;
+        const prompt = chip.dataset.prompt;
+
+        if (action === 'clear') {
+          this.clearChat();
+        } else if (prompt) {
+          if (this.input) {
+            this.input.value = prompt;
+            this.handleSend();
+          }
+        }
       });
     }
 
@@ -111,25 +133,43 @@ export class NovaAssistant {
     }
   }
 
-  async handleSend() {
+  clearChat() {
+    if (!this.messagesContainer) return;
+    this.messagesContainer.innerHTML = `
+      <div class="nova-msg nova-msg-assistant">
+        <div class="nova-msg-avatar">🤖</div>
+        <div class="nova-msg-bubble">Hi! I'm NOVA 👋<br>Your productivity assistant.<br><br>Tell me what you need to get done, and I'll help you organize it.</div>
+      </div>
+    `;
+    this.chatHistory = [];
+    this.lastFailedMessage = null;
+    if (this.ui && typeof this.ui.showToast === 'function') {
+      this.ui.showToast('Chat history cleared', 'info');
+    }
+  }
+
+  async handleSend(retryText = null) {
     if (!this.input) return;
-    const text = this.input.value.trim();
+    const text = retryText || this.input.value.trim();
     if (!text) return;
 
     // Append user message to UI & history
-    this.appendMessage(text, 'user');
-    this.chatHistory.push({ role: 'user', content: text });
+    if (!retryText) {
+      this.appendMessage(text, 'user');
+      this.chatHistory.push({ role: 'user', content: text });
+    }
 
     // Limit history to last 10 messages
     if (this.chatHistory.length > 10) {
       this.chatHistory = this.chatHistory.slice(-10);
     }
 
-    // Clear input & reset height
+    // Clear input & disable controls while processing
     this.input.value = '';
     this.input.style.height = 'auto';
+    this.setInputState(false);
 
-    // Show typing indicator
+    // Show animated typing indicator
     const typingMsg = this.appendTypingIndicator();
 
     try {
@@ -146,14 +186,20 @@ export class NovaAssistant {
         })
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+
       const data = await response.json();
 
       // Remove typing indicator
       this.removeTypingIndicator(typingMsg);
+      this.setInputState(true);
 
       if (data && data.reply) {
         const assistantBubble = this.appendMessage(data.reply, 'assistant');
         this.chatHistory.push({ role: 'model', content: data.reply });
+        this.lastFailedMessage = null;
 
         // Render proposed action confirmation cards (Single or Batch)
         if (data.proposedActions && Array.isArray(data.proposedActions) && data.proposedActions.length > 0) {
@@ -169,7 +215,17 @@ export class NovaAssistant {
     } catch (err) {
       console.error("NOVA API request error:", err);
       this.removeTypingIndicator(typingMsg);
-      this.appendMessage("I encountered an issue communicating with my AI server. Please make sure the local server is running.", 'assistant');
+      this.setInputState(true);
+      this.lastFailedMessage = text;
+      this.appendErrorCard("I encountered a network issue communicating with the AI backend.", text);
+    }
+  }
+
+  setInputState(enabled) {
+    if (this.input) this.input.disabled = !enabled;
+    if (this.sendBtn) this.sendBtn.disabled = !enabled;
+    if (enabled && this.input) {
+      this.input.focus();
     }
   }
 
@@ -195,13 +251,45 @@ export class NovaAssistant {
     return msgDiv;
   }
 
+  appendErrorCard(errorText, failedMsgText) {
+    if (!this.messagesContainer) return;
+
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'nova-msg nova-msg-assistant';
+    msgDiv.innerHTML = `
+      <div class="nova-msg-avatar">⚠️</div>
+      <div class="nova-msg-bubble">
+        <div>${this.escapeHTML(errorText)}</div>
+        <div class="nova-error-card">
+          <span>Make sure the local PowerShell server (<code>server.ps1</code>) is running at <code>http://localhost:8080</code>.</span>
+          <button class="nova-retry-btn">🔄 Retry Message</button>
+        </div>
+      </div>
+    `;
+
+    this.messagesContainer.appendChild(msgDiv);
+    this.scrollToBottom();
+
+    const retryBtn = msgDiv.querySelector('.nova-retry-btn');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', () => {
+        msgDiv.remove();
+        this.handleSend(failedMsgText);
+      });
+    }
+  }
+
   appendTypingIndicator() {
     if (!this.messagesContainer) return null;
     const msgDiv = document.createElement('div');
     msgDiv.className = 'nova-msg nova-msg-assistant nova-typing-msg';
     msgDiv.innerHTML = `
       <div class="nova-msg-avatar">🤖</div>
-      <div class="nova-msg-bubble"><em>NOVA is thinking...</em></div>
+      <div class="nova-msg-bubble">
+        <div class="nova-typing-dots">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
     `;
     this.messagesContainer.appendChild(msgDiv);
     this.scrollToBottom();
@@ -215,9 +303,9 @@ export class NovaAssistant {
   }
 
   renderActionCard(action, parentMsgEl) {
-    if (!parentMsgEl) return;
+    if (!parentMsgEl) return null;
     const bubbleEl = parentMsgEl.querySelector('.nova-msg-bubble');
-    if (!bubbleEl) return;
+    if (!bubbleEl) return null;
 
     const quadLabels = {
       q1: 'Q1 • Do First',
@@ -229,6 +317,7 @@ export class NovaAssistant {
     const card = document.createElement('div');
     const isDelete = action.type === 'DELETE_TASK';
     card.className = `nova-action-card ${isDelete ? 'delete-action' : ''}`;
+    card.dataset.executed = 'false';
 
     let headerIcon = '➕';
     let headerTitle = 'Proposed Action: Create Task';
@@ -300,23 +389,40 @@ export class NovaAssistant {
     bubbleEl.appendChild(card);
     this.scrollToBottom();
 
-    // Bind Confirm & Cancel buttons
+    // Bind Confirm & Cancel buttons with double-click prevention
     const confirmBtn = card.querySelector('.nova-confirm-btn');
     const cancelBtn = card.querySelector('.nova-cancel-btn');
     const controlsDiv = card.querySelector('.nova-action-controls');
 
     if (confirmBtn) {
       confirmBtn.addEventListener('click', () => {
-        this.executeConfirmedAction(action);
-        controlsDiv.innerHTML = `<span class="nova-action-status executed">✓ Action Executed</span>`;
-        if (this.ui && typeof this.ui.showToast === 'function') {
-          this.ui.showToast(`AI Action executed successfully!`, 'success');
+        if (card.dataset.executed === 'true') return;
+        card.dataset.executed = 'true';
+        confirmBtn.disabled = true;
+        cancelBtn.disabled = true;
+
+        const success = this.executeConfirmedAction(action);
+        if (success) {
+          controlsDiv.innerHTML = `<span class="nova-action-status executed">✓ Action Executed</span>`;
+          if (this.ui && typeof this.ui.showToast === 'function') {
+            this.ui.showToast(`AI Action executed successfully!`, 'success');
+          }
+        } else {
+          controlsDiv.innerHTML = `<span class="nova-action-status cancelled">⚠ Task Not Found</span>`;
+          if (this.ui && typeof this.ui.showToast === 'function') {
+            this.ui.showToast(`Target task no longer exists in matrix`, 'error');
+          }
         }
       });
     }
 
     if (cancelBtn) {
       cancelBtn.addEventListener('click', () => {
+        if (card.dataset.executed === 'true') return;
+        card.dataset.executed = 'true';
+        confirmBtn.disabled = true;
+        cancelBtn.disabled = true;
+
         controlsDiv.innerHTML = `<span class="nova-action-status cancelled">✕ Action Cancelled</span>`;
         if (this.ui && typeof this.ui.showToast === 'function') {
           this.ui.showToast(`AI Action cancelled`, 'info');
@@ -369,13 +475,22 @@ export class NovaAssistant {
       confirmAllBtn.addEventListener('click', () => {
         let count = 0;
         cardExecutors.forEach(item => {
-          if (item.cardObj.controlsDiv && !item.cardObj.controlsDiv.querySelector('.executed')) {
-            this.executeConfirmedAction(item.action);
-            item.cardObj.controlsDiv.innerHTML = `<span class="nova-action-status executed">✓ Action Executed</span>`;
-            count++;
+          if (item.cardObj.card && item.cardObj.card.dataset.executed !== 'true') {
+            item.cardObj.card.dataset.executed = 'true';
+            if (item.cardObj.confirmBtn) item.cardObj.confirmBtn.disabled = true;
+            if (item.cardObj.cancelBtn) item.cardObj.cancelBtn.disabled = true;
+
+            const success = this.executeConfirmedAction(item.action);
+            if (success) {
+              item.cardObj.controlsDiv.innerHTML = `<span class="nova-action-status executed">✓ Action Executed</span>`;
+              count++;
+            } else {
+              item.cardObj.controlsDiv.innerHTML = `<span class="nova-action-status cancelled">⚠ Task Not Found</span>`;
+            }
           }
         });
 
+        confirmAllBtn.disabled = true;
         confirmAllBtn.style.display = 'none';
 
         if (this.ui && typeof this.ui.showToast === 'function') {
@@ -389,6 +504,18 @@ export class NovaAssistant {
 
   executeConfirmedAction(action) {
     const data = action.data || {};
+
+    // Validate target task existence for task modification actions
+    if (['UPDATE_TASK', 'MOVE_TASK', 'TOGGLE_TASK', 'DELETE_TASK'].includes(action.type)) {
+      if (data.id) {
+        const existing = store.getTaskById(data.id);
+        if (!existing) {
+          console.warn(`Task ${data.id} no longer exists in store`);
+          return false;
+        }
+      }
+    }
+
     switch (action.type) {
       case 'CREATE_TASK':
         store.addTask({
@@ -428,6 +555,8 @@ export class NovaAssistant {
     if (this.ui && typeof this.ui.render === 'function') {
       this.ui.render();
     }
+
+    return true;
   }
 
   scrollToBottom() {
@@ -437,6 +566,7 @@ export class NovaAssistant {
   }
 
   escapeHTML(str) {
+    if (typeof str !== 'string') return '';
     return str.replace(/[&<>'"]/g, 
       tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
     );

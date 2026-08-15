@@ -20,6 +20,40 @@ $mimeTypes = @{
     ".ico"  = "image/x-icon"
 }
 
+function Validate-AiActionData ($action) {
+    if (-not $action -or -not $action.type) { return $null }
+
+    $validTypes = @("CREATE_TASK", "UPDATE_TASK", "TOGGLE_TASK", "MOVE_TASK", "DELETE_TASK")
+    if ($validTypes -notcontains $action.type) { return $null }
+
+    $data = $action.data
+    if (-not $data) { $data = @{} }
+
+    # Validate & sanitize quadrant key
+    if ($data.quadrant) {
+        $quadLower = [string]$data.quadrant.ToLower().Trim()
+        if ($quadLower -notmatch '^(q1|q2|q3|q4)$') {
+            $data.quadrant = "q2"
+        } else {
+            $data.quadrant = $quadLower
+        }
+    } else {
+        $data.quadrant = "q2"
+    }
+
+    # Sanitize title
+    if ($data.title) {
+        $data.title = [string]$data.title.Trim()
+    } else {
+        $data.title = "Untitled Task"
+    }
+
+    return @{
+        type = $action.type
+        data = $data
+    }
+}
+
 function Extract-TaskTitleAndQuadrant ($userMsg) {
     $lower = $userMsg.ToLower()
 
@@ -129,11 +163,11 @@ Active Mood State: $($context.mood)
 Live Matrix Tasks: $contextJson
 
 MOOD HEURISTICS:
-- Stressed 🌩️: Focus on reducing cognitive load, delegating Q3 items, and clearing Q4 clutter.
-- Deep Focus 🎯: Prioritize high-impact Q1 Do First and Q2 Schedule architecture tasks.
-- Productive 🚀: Encourage steady progress through Q1 and Q2 priorities.
-- Energized ⚡: Recommend quick sprints and tackling backlog items.
-- Calm 🌊: Recommend steady organization and scheduling Q2 tasks.
+- Stressed: Focus on reducing cognitive load, delegating Q3 items, and clearing Q4 clutter.
+- Deep Focus: Prioritize high-impact Q1 Do First and Q2 Schedule architecture tasks.
+- Productive: Encourage steady progress through Q1 and Q2 priorities.
+- Energized: Recommend quick sprints and tackling backlog items.
+- Calm: Recommend steady organization and scheduling Q2 tasks.
 
 TASK ACTION FORMATTING RULES:
 For completion requests like 'Mark X as completed' or 'Complete X', match X against the existing tasks list and return type 'TOGGLE_TASK' with data.id set to the matching task ID.
@@ -159,7 +193,7 @@ You MUST respond ONLY with a single raw valid JSON object:
 "@
 
             $contentsList = [System.Collections.ArrayList]::new()
-            
+
             # Format multi-turn conversation history
             foreach ($item in $history) {
                 $roleStr = if ($item.role -eq 'user') { "user" } else { "model" }
@@ -187,7 +221,21 @@ You MUST respond ONLY with a single raw valid JSON object:
             $apiResponse = Invoke-RestMethod -Uri $apiUrl -Method Post -ContentType "application/json" -Body $payload
             $rawText = $apiResponse.candidates[0].content.parts[0].text
 
-            return ($rawText | ConvertFrom-Json)
+            $parsedResult = $rawText | ConvertFrom-Json
+
+            # Validate proposed actions
+            $validatedActions = @()
+            if ($parsedResult.proposedActions) {
+                foreach ($act in $parsedResult.proposedActions) {
+                    $val = Validate-AiActionData -action $act
+                    if ($val) { $validatedActions += $val }
+                }
+            }
+
+            return @{
+                reply = $parsedResult.reply
+                proposedActions = $validatedActions
+            }
         } catch {
             Write-Host "Gemini API call error: $_"
         }
@@ -208,9 +256,37 @@ You MUST respond ONLY with a single raw valid JSON object:
         $tasksList = @($context.tasks)
     }
 
-    # 1. Task Completion Intent
-    $completedTask = Extract-CompleteTaskIntent -userMsg $userMsg -tasksList $tasksList
-    if ($completedTask) {
+    # 1. Analytics & Insights Intent
+    if ($lowerMsg -like "*analyze*" -or $lowerMsg -like "*insight*" -or $lowerMsg -like "*stat*" -or $lowerMsg -like "*metrics*") {
+        $totalCount = $tasksList.Count
+        $completedCount = 0
+        foreach ($t in $tasksList) {
+            if ($t.completed -eq $true) { $completedCount++ }
+        }
+        $activeCount = $totalCount - $completedCount
+        $compRate = 0
+        if ($totalCount -gt 0) {
+            $compRate = [math]::Round(($completedCount / $totalCount) * 100, 1)
+        }
+
+        $q1 = 0; $q2 = 0; $q3 = 0; $q4 = 0
+        foreach ($t in $tasksList) {
+            if (-not $t.completed) {
+                if ($t.quadrant -eq 'q1') { $q1++ }
+                elseif ($t.quadrant -eq 'q2') { $q2++ }
+                elseif ($t.quadrant -eq 'q3') { $q3++ }
+                elseif ($t.quadrant -eq 'q4') { $q4++ }
+            }
+        }
+
+        $replyText = "MATRIX PRODUCTIVITY INSIGHTS:`n" +
+                     "- Completion Rate: $compRate% ($completedCount of $totalCount completed)`n" +
+                     "- Active Tasks: $activeCount pending`n" +
+                     "- Breakdown: Q1 Do First: $q1 | Q2 Schedule: $q2 | Q3 Delegate: $q3 | Q4 Eliminate: $q4`n`n" +
+                     "Tip: Keep Q1 low by scheduling important tasks into Q2 ahead of time!"
+    }
+    # 2. Task Completion Intent
+    elseif ($completedTask = Extract-CompleteTaskIntent -userMsg $userMsg -tasksList $tasksList) {
         [void]$actionsList.Add(@{
             type = "TOGGLE_TASK"
             data = @{
@@ -220,7 +296,7 @@ You MUST respond ONLY with a single raw valid JSON object:
         })
         $replyText = "I've prepared an action to mark '$($completedTask.title)' as completed. Please review and confirm below."
     }
-    # 2. Task Creation Intent
+    # 3. Task Creation Intent
     elseif ($lowerMsg -like "*add *" -or $lowerMsg -like "*create *" -or $lowerMsg -like "*new task*") {
         $extracted = Extract-TaskTitleAndQuadrant -userMsg $userMsg
         $taskTitle = $extracted.title
@@ -237,7 +313,7 @@ You MUST respond ONLY with a single raw valid JSON object:
         })
         $replyText = "I've prepared a proposed action to create '$taskTitle' in $($targetQuad.ToUpper()). Please review and confirm below."
     }
-    # 3. Task Deletion Intent
+    # 4. Task Deletion Intent
     elseif ($lowerMsg -like "*delete *" -or $lowerMsg -like "*remove *") {
         $targetTask = $null
         if ($tasksList.Count -gt 0) {
@@ -258,7 +334,7 @@ You MUST respond ONLY with a single raw valid JSON object:
             $replyText = "I couldn't find a task matching that name in your matrix."
         }
     }
-    # 4. Task Movement Intent
+    # 5. Task Movement Intent
     elseif ($lowerMsg -like "*move *" -or $lowerMsg -like "*shift *") {
         $targetQuad = "q2"
         if ($lowerMsg -like "*q1*") { $targetQuad = "q1" }
@@ -284,25 +360,30 @@ You MUST respond ONLY with a single raw valid JSON object:
             $replyText = "You currently have no tasks to move."
         }
     }
-    # 5. Mood-Aware Focus / Insights Recommendation Intent
-    elseif ($lowerMsg -like "*focus*" -or $lowerMsg -like "*recommend*" -or $lowerMsg -like "*what should*" -or $lowerMsg -like "*analyze*") {
-        $q1Count = ($tasksList | Where-Object { $_.quadrant -eq 'q1' -and -not $_.completed }).Count
-        $q2Count = ($tasksList | Where-Object { $_.quadrant -eq 'q2' -and -not $_.completed }).Count
-        $q3Count = ($tasksList | Where-Object { $_.quadrant -eq 'q3' -and -not $_.completed }).Count
-        $q4Count = ($tasksList | Where-Object { $_.quadrant -eq 'q4' -and -not $_.completed }).Count
+    # 6. Mood-Aware Focus / Recommendation Intent
+    elseif ($lowerMsg -like "*focus*" -or $lowerMsg -like "*recommend*" -or $lowerMsg -like "*what should*") {
+        $q1Count = 0; $q2Count = 0; $q3Count = 0; $q4Count = 0
+        foreach ($t in $tasksList) {
+            if (-not $t.completed) {
+                if ($t.quadrant -eq 'q1') { $q1Count++ }
+                elseif ($t.quadrant -eq 'q2') { $q2Count++ }
+                elseif ($t.quadrant -eq 'q3') { $q3Count++ }
+                elseif ($t.quadrant -eq 'q4') { $q4Count++ }
+            }
+        }
 
         switch ($userMood) {
             "stressed" {
-                $replyText = "In your Stressed 🌩️ state, let's keep cognitive overload low. You have $q1Count urgent items in Q1 and $q3Count in Q3. I recommend delegating Q3 items and taking on one Q1 task at a time."
+                $replyText = "In your Stressed state, let's keep cognitive overload low. You have $q1Count urgent items in Q1 and $q3Count in Q3. I recommend delegating Q3 items and taking on one Q1 task at a time."
             }
             "focused" {
-                $replyText = "In your Deep Focus 🎯 state, this is the prime time to tackle Q1 ($q1Count tasks) and drive high-impact Q2 Schedule tasks ($q2Count tasks)!"
+                $replyText = "In your Deep Focus state, this is the prime time to tackle Q1 ($q1Count tasks) and drive high-impact Q2 Schedule tasks ($q2Count tasks)!"
             }
             "energized" {
-                $replyText = "In your Energized ⚡ state, you have great momentum! Tackle your $q1Count Q1 Do First items or clear out quick sprints."
+                $replyText = "In your Energized state, you have great momentum! Tackle your $q1Count Q1 Do First items or clear out quick sprints."
             }
             default {
-                $replyText = "Based on your $userMood workspace ($q1Count Q1, $q2Count Q2, $q3Count Q3, $q4Count Q4), focus on high-importance Q1 and Q2 items first."
+                $replyText = "Based on your $userMood workspace (Q1: $q1Count, Q2: $q2Count, Q3: $q3Count, Q4: $q4Count), focus on high-importance Q1 and Q2 items first."
             }
         }
     }
@@ -373,6 +454,7 @@ while ($listener.IsListening) {
 
         $response.ContentType = $contentType
         $bytes = [System.IO.File]::ReadAllBytes($filePath)
+        $response.ContentLength64 = $bytes.Length
         $response.OutputStream.Write($bytes, 0, $bytes.Length)
         $response.Close()
     } else {
