@@ -106,22 +106,77 @@ function Process-AiChat {
         $context = $requestObj.context
     }
 
+    $history = @()
+    if ($requestObj -and $requestObj.history) {
+        $history = @($requestObj.history)
+    }
+
     $apiKey = $env:GEMINI_API_KEY
 
     if ($apiKey -and $apiKey.Trim().Length -gt 0) {
         try {
             $contextJson = $context | ConvertTo-Json -Depth 5 -Compress
-            $systemInstruction = "You are NOVA, an intelligent AI productivity assistant integrated into the Task & Mood Matrix. Help users manage tasks across 4 Eisenhower Quadrants (q1: Do First, q2: Schedule, q3: Delegate, q4: Eliminate). Current Mood: $($context.mood). Tasks: $contextJson. For completion requests like 'Mark X as completed' or 'Complete X', match X against the existing tasks list and return type 'TOGGLE_TASK' with data.id set to the matching task ID. You MUST respond ONLY with a single raw valid JSON object: { `"reply`": `"Conversational explanation...`", `"proposedActions`": [ { `"type`": `"CREATE_TASK`" | `"UPDATE_TASK`" | `"TOGGLE_TASK`" | `"MOVE_TASK`" | `"DELETE_TASK`", `"data`": { `"id`": `"task-id`", `"title`": `"title`", `"description`": `"notes`", `"quadrant`": `"q1`"|`"q2`"|`"q3`"|`"q4`", `"mood`": `"focused`" } } ] }."
+            $systemInstruction = @"
+You are NOVA, an intelligent AI productivity assistant integrated into the Task & Mood Matrix application.
+You help users organize, prioritize, and manage their tasks across 4 Eisenhower Quadrants:
+- q1: Do First (Urgent & Important)
+- q2: Schedule (Important, Not Urgent)
+- q3: Delegate (Urgent, Not Important)
+- q4: Eliminate (Not Urgent or Important)
+
+CURRENT USER CONTEXT:
+Active Mood State: $($context.mood)
+Live Matrix Tasks: $contextJson
+
+MOOD HEURISTICS:
+- Stressed 🌩️: Focus on reducing cognitive load, delegating Q3 items, and clearing Q4 clutter.
+- Deep Focus 🎯: Prioritize high-impact Q1 Do First and Q2 Schedule architecture tasks.
+- Productive 🚀: Encourage steady progress through Q1 and Q2 priorities.
+- Energized ⚡: Recommend quick sprints and tackling backlog items.
+- Calm 🌊: Recommend steady organization and scheduling Q2 tasks.
+
+TASK ACTION FORMATTING RULES:
+For completion requests like 'Mark X as completed' or 'Complete X', match X against the existing tasks list and return type 'TOGGLE_TASK' with data.id set to the matching task ID.
+When extracting task titles for CREATE_TASK, return CLEAN titles without prefixes like 'called' or trailing phrases like 'and put in Q2'.
+
+CRITICAL RESPONSE SCHEMA:
+You MUST respond ONLY with a single raw valid JSON object:
+{
+  "reply": "Conversational response explaining recommendations or proposed actions...",
+  "proposedActions": [
+    {
+      "type": "CREATE_TASK" | "UPDATE_TASK" | "TOGGLE_TASK" | "MOVE_TASK" | "DELETE_TASK",
+      "data": {
+        "id": "task-id (required for UPDATE, TOGGLE, MOVE, DELETE)",
+        "title": "clean task title",
+        "description": "optional notes",
+        "quadrant": "q1" | "q2" | "q3" | "q4",
+        "mood": "focused" | "productive" | "calm" | "energized" | "stressed"
+      }
+    }
+  ]
+}
+"@
+
+            $contentsList = [System.Collections.ArrayList]::new()
+            
+            # Format multi-turn conversation history
+            foreach ($item in $history) {
+                $roleStr = if ($item.role -eq 'user') { "user" } else { "model" }
+                [void]$contentsList.Add(@{
+                    role = $roleStr
+                    parts = @( @{ text = [string]$item.content } )
+                })
+            }
+
+            # Append current prompt with system instructions
+            [void]$contentsList.Add(@{
+                role = "user"
+                parts = @( @{ text = "$systemInstruction`n`nUser Message: $userMsg" } )
+            })
 
             $payload = @{
-                contents = @(
-                    @{
-                        role = "user"
-                        parts = @(
-                            @{ text = "$systemInstruction`n`nUser Message: $userMsg" }
-                        )
-                    }
-                )
+                contents = $contentsList
                 generationConfig = @{
                     temperature = 0.2
                     responseMimeType = "application/json"
@@ -153,7 +208,7 @@ function Process-AiChat {
         $tasksList = @($context.tasks)
     }
 
-    # 1. Task Completion Intent Detection
+    # 1. Task Completion Intent
     $completedTask = Extract-CompleteTaskIntent -userMsg $userMsg -tasksList $tasksList
     if ($completedTask) {
         [void]$actionsList.Add(@{
@@ -165,7 +220,7 @@ function Process-AiChat {
         })
         $replyText = "I've prepared an action to mark '$($completedTask.title)' as completed. Please review and confirm below."
     }
-    # 2. Task Creation Intent Detection
+    # 2. Task Creation Intent
     elseif ($lowerMsg -like "*add *" -or $lowerMsg -like "*create *" -or $lowerMsg -like "*new task*") {
         $extracted = Extract-TaskTitleAndQuadrant -userMsg $userMsg
         $taskTitle = $extracted.title
@@ -182,7 +237,7 @@ function Process-AiChat {
         })
         $replyText = "I've prepared a proposed action to create '$taskTitle' in $($targetQuad.ToUpper()). Please review and confirm below."
     }
-    # 3. Task Deletion Intent Detection
+    # 3. Task Deletion Intent
     elseif ($lowerMsg -like "*delete *" -or $lowerMsg -like "*remove *") {
         $targetTask = $null
         if ($tasksList.Count -gt 0) {
@@ -203,7 +258,7 @@ function Process-AiChat {
             $replyText = "I couldn't find a task matching that name in your matrix."
         }
     }
-    # 4. Task Movement Intent Detection
+    # 4. Task Movement Intent
     elseif ($lowerMsg -like "*move *" -or $lowerMsg -like "*shift *") {
         $targetQuad = "q2"
         if ($lowerMsg -like "*q1*") { $targetQuad = "q1" }
@@ -229,9 +284,31 @@ function Process-AiChat {
             $replyText = "You currently have no tasks to move."
         }
     }
+    # 5. Mood-Aware Focus / Insights Recommendation Intent
+    elseif ($lowerMsg -like "*focus*" -or $lowerMsg -like "*recommend*" -or $lowerMsg -like "*what should*" -or $lowerMsg -like "*analyze*") {
+        $q1Count = ($tasksList | Where-Object { $_.quadrant -eq 'q1' -and -not $_.completed }).Count
+        $q2Count = ($tasksList | Where-Object { $_.quadrant -eq 'q2' -and -not $_.completed }).Count
+        $q3Count = ($tasksList | Where-Object { $_.quadrant -eq 'q3' -and -not $_.completed }).Count
+        $q4Count = ($tasksList | Where-Object { $_.quadrant -eq 'q4' -and -not $_.completed }).Count
+
+        switch ($userMood) {
+            "stressed" {
+                $replyText = "In your Stressed 🌩️ state, let's keep cognitive overload low. You have $q1Count urgent items in Q1 and $q3Count in Q3. I recommend delegating Q3 items and taking on one Q1 task at a time."
+            }
+            "focused" {
+                $replyText = "In your Deep Focus 🎯 state, this is the prime time to tackle Q1 ($q1Count tasks) and drive high-impact Q2 Schedule tasks ($q2Count tasks)!"
+            }
+            "energized" {
+                $replyText = "In your Energized ⚡ state, you have great momentum! Tackle your $q1Count Q1 Do First items or clear out quick sprints."
+            }
+            default {
+                $replyText = "Based on your $userMood workspace ($q1Count Q1, $q2Count Q2, $q3Count Q3, $q4Count Q4), focus on high-importance Q1 and Q2 items first."
+            }
+        }
+    }
     else {
         $count = $tasksList.Count
-        $replyText = "I'm analyzing your $userMood workspace. You currently have $count task(s). Ask me to create, move, complete, or delete any tasks!"
+        $replyText = "I'm analyzing your $userMood workspace. You currently have $count task(s). Ask me to create, move, complete, or delete any tasks, or ask for recommendations!"
     }
 
     return @{

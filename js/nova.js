@@ -9,6 +9,7 @@ export class NovaAssistant {
   constructor() {
     this.isOpen = false;
     this.ui = null;
+    this.chatHistory = [];
 
     // Cache DOM Elements
     this.toggleBtn = document.getElementById('btn-nova-toggle');
@@ -115,8 +116,14 @@ export class NovaAssistant {
     const text = this.input.value.trim();
     if (!text) return;
 
-    // Append user message
+    // Append user message to UI & history
     this.appendMessage(text, 'user');
+    this.chatHistory.push({ role: 'user', content: text });
+
+    // Limit history to last 10 messages
+    if (this.chatHistory.length > 10) {
+      this.chatHistory = this.chatHistory.slice(-10);
+    }
 
     // Clear input & reset height
     this.input.value = '';
@@ -134,7 +141,8 @@ export class NovaAssistant {
         },
         body: JSON.stringify({
           message: text,
-          context: context
+          context: context,
+          history: this.chatHistory
         })
       });
 
@@ -145,15 +153,18 @@ export class NovaAssistant {
 
       if (data && data.reply) {
         const assistantBubble = this.appendMessage(data.reply, 'assistant');
+        this.chatHistory.push({ role: 'model', content: data.reply });
 
-        // Render proposed action confirmation cards if present
+        // Render proposed action confirmation cards (Single or Batch)
         if (data.proposedActions && Array.isArray(data.proposedActions) && data.proposedActions.length > 0) {
-          data.proposedActions.forEach(action => {
-            this.renderActionCard(action, assistantBubble);
-          });
+          if (data.proposedActions.length === 1) {
+            this.renderActionCard(data.proposedActions[0], assistantBubble);
+          } else {
+            this.renderBatchActionCard(data.proposedActions, assistantBubble);
+          }
         }
       } else {
-        this.appendMessage("I received your message, but I couldn't generate proposed actions right now.", 'assistant');
+        this.appendMessage("I received your message, but I couldn't generate recommendations right now.", 'assistant');
       }
     } catch (err) {
       console.error("NOVA API request error:", err);
@@ -289,7 +300,7 @@ export class NovaAssistant {
     bubbleEl.appendChild(card);
     this.scrollToBottom();
 
-    // Bind Confirm button
+    // Bind Confirm & Cancel buttons
     const confirmBtn = card.querySelector('.nova-confirm-btn');
     const cancelBtn = card.querySelector('.nova-cancel-btn');
     const controlsDiv = card.querySelector('.nova-action-controls');
@@ -312,6 +323,68 @@ export class NovaAssistant {
         }
       });
     }
+
+    return { card, controlsDiv, confirmBtn, cancelBtn };
+  }
+
+  renderBatchActionCard(actionsList, parentMsgEl) {
+    if (!parentMsgEl || !actionsList || actionsList.length === 0) return;
+    const bubbleEl = parentMsgEl.querySelector('.nova-msg-bubble');
+    if (!bubbleEl) return;
+
+    const batchContainer = document.createElement('div');
+    batchContainer.className = 'nova-batch-card';
+
+    batchContainer.innerHTML = `
+      <div class="nova-batch-header">
+        <span>📦 Proposed Batch Actions (${actionsList.length} items)</span>
+      </div>
+      <div class="nova-batch-items"></div>
+      <button class="nova-confirm-all-btn">✅ Confirm All ${actionsList.length} Actions</button>
+    `;
+
+    bubbleEl.appendChild(batchContainer);
+
+    const itemsContainer = batchContainer.querySelector('.nova-batch-items');
+    const confirmAllBtn = batchContainer.querySelector('.nova-confirm-all-btn');
+
+    const cardExecutors = [];
+
+    // Render individual action cards inside batch items container
+    actionsList.forEach(action => {
+      const mockMsgParent = document.createElement('div');
+      mockMsgParent.className = 'nova-msg-bubble';
+      itemsContainer.appendChild(mockMsgParent);
+
+      const cardObj = this.renderActionCard(action, { querySelector: () => mockMsgParent });
+      if (cardObj) {
+        cardExecutors.push({
+          action: action,
+          cardObj: cardObj
+        });
+      }
+    });
+
+    if (confirmAllBtn) {
+      confirmAllBtn.addEventListener('click', () => {
+        let count = 0;
+        cardExecutors.forEach(item => {
+          if (item.cardObj.controlsDiv && !item.cardObj.controlsDiv.querySelector('.executed')) {
+            this.executeConfirmedAction(item.action);
+            item.cardObj.controlsDiv.innerHTML = `<span class="nova-action-status executed">✓ Action Executed</span>`;
+            count++;
+          }
+        });
+
+        confirmAllBtn.style.display = 'none';
+
+        if (this.ui && typeof this.ui.showToast === 'function') {
+          this.ui.showToast(`Executed ${count} batch AI action(s)!`, 'success');
+        }
+      });
+    }
+
+    this.scrollToBottom();
   }
 
   executeConfirmedAction(action) {
@@ -351,7 +424,7 @@ export class NovaAssistant {
         break;
     }
 
-    // Trigger matrix UI re-render
+    // Trigger live matrix UI re-render
     if (this.ui && typeof this.ui.render === 'function') {
       this.ui.render();
     }
