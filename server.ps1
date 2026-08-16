@@ -167,17 +167,16 @@ CURRENT USER CONTEXT:
 Active Mood State: $($context.mood)
 Live Matrix Tasks: $contextJson
 
-MOOD HEURISTICS:
-- Stressed: Focus on reducing cognitive load, delegating Q3 items, and clearing Q4 clutter.
-- Deep Focus: Prioritize high-impact Q1 Do First and Q2 Schedule architecture tasks.
-- Productive: Encourage steady progress through Q1 and Q2 priorities.
-- Energized: Recommend quick sprints and tackling backlog items.
-- Calm: Recommend steady organization and scheduling Q2 tasks.
+MOOD & MATRIX BALANCING HEURISTICS:
+- Q1 Overload (>3 tasks): Prioritize suggesting suitable non-urgent tasks for Q2 Schedule.
+- Q3 Overload (>2 tasks): Suggest reviewing and delegating suitable tasks.
+- Q4 Moves: ONLY propose moving to Q4 when the task is clearly non-urgent and non-important or the user explicitly asks to eliminate/deprioritize it.
 
 TASK ACTION FORMATTING RULES:
 For creation requests starting with 'Create', 'Add', or 'New Task', ALWAYS generate type 'CREATE_TASK'.
 For completion requests like 'Mark X as completed' or 'Complete X', match X against the existing tasks list and return type 'TOGGLE_TASK' with data.id set to the matching task ID.
 When extracting task titles for CREATE_TASK, return CLEAN titles without prefixes like 'called' or trailing phrases like 'and put in Q2'.
+For task update requests, return 'UPDATE_TASK' with data containing id, title, description, quadrant, oldTitle, oldQuadrant, oldDescription.
 
 CRITICAL RESPONSE SCHEMA:
 You MUST respond ONLY with a single raw valid JSON object:
@@ -260,18 +259,15 @@ You MUST respond ONLY with a single raw valid JSON object:
         $tasksList = @($context.tasks)
     }
 
-    # 1. Analytics & Insights Intent
-    if ($lowerMsg -like "*analyze*" -or $lowerMsg -like "*insight*" -or $lowerMsg -like "*stat*" -or $lowerMsg -like "*metrics*") {
+    # 1. Productivity Audit Engine
+    if ($lowerMsg -like "*audit*" -or $lowerMsg -like "*velocity*" -or $lowerMsg -like "*deep work*") {
         $totalCount = $tasksList.Count
         $completedCount = 0
         foreach ($t in $tasksList) {
             if ($t.completed -eq $true) { $completedCount++ }
         }
         $activeCount = $totalCount - $completedCount
-        $compRate = 0
-        if ($totalCount -gt 0) {
-            $compRate = [math]::Round(($completedCount / $totalCount) * 100, 1)
-        }
+        $compRate = if ($totalCount -gt 0) { [math]::Round(($completedCount / $totalCount) * 100, 1) } else { 0 }
 
         $q1 = 0; $q2 = 0; $q3 = 0; $q4 = 0
         foreach ($t in $tasksList) {
@@ -283,13 +279,127 @@ You MUST respond ONLY with a single raw valid JSON object:
             }
         }
 
-        $replyText = "MATRIX PRODUCTIVITY INSIGHTS:`n" +
+        $deepWorkRatio = if ($activeCount -gt 0) { [math]::Round(($q2 / $activeCount) * 100, 1) } else { 0 }
+        $overloadStatus = if ($q1 -gt 3) { "HIGH (Urgent Overload Alert!)" } else { "NORMAL" }
+
+        $replyText = "PRODUCTIVITY AUDIT REPORT:`n" +
+                     "- Overload Index: $overloadStatus (Q1: $q1 active tasks)`n" +
+                     "- Deep Work Ratio: $deepWorkRatio% of active tasks in Q2 Schedule`n" +
                      "- Completion Rate: $compRate% ($completedCount of $totalCount completed)`n" +
-                     "- Active Tasks: $activeCount pending`n" +
-                     "- Breakdown: Q1 Do First: $q1 | Q2 Schedule: $q2 | Q3 Delegate: $q3 | Q4 Eliminate: $q4`n`n" +
-                     "Tip: Keep Q1 low by scheduling important tasks into Q2 ahead of time!"
+                     "- Active Workload: $activeCount tasks pending`n`n" +
+                     "Recommendation: Keep Q1 low by proactively scheduling important tasks in Q2."
     }
-    # 2. Task Creation Intent (Checked BEFORE completion intent so creation is never intercepted)
+    # 2. Matrix Auto-Balancing Intent
+    elseif ($lowerMsg -like "*balance*" -or $lowerMsg -like "*rebalance*" -or $lowerMsg -like "*organize q1*" -or $lowerMsg -like "*organize q3*") {
+        $q1Active = @($tasksList | Where-Object { $_.quadrant -eq 'q1' -and -not $_.completed })
+        $q3Active = @($tasksList | Where-Object { $_.quadrant -eq 'q3' -and -not $_.completed })
+
+        if ($q1Active.Count -gt 3) {
+            # Q1 Overload (>3 active tasks): move 4th+ Q1 task to Q2 (Schedule) as per rules
+            $targetTask = $q1Active[3]
+            [void]$actionsList.Add(@{
+                type = "MOVE_TASK"
+                data = @{
+                    id = $targetTask.id
+                    title = $targetTask.title
+                    quadrant = "q2"
+                    oldQuadrant = "q1"
+                }
+            })
+            $replyText = "I've detected a Q1 overload ($($q1Active.Count) active tasks, exceeding the 3-task threshold). I've prepared a proposed action to balance your matrix by moving '$($targetTask.title)' to Q2 Schedule."
+        }
+        elseif ($q1Active.Count -gt 1) {
+            $targetTask = $q1Active[1]
+            [void]$actionsList.Add(@{
+                type = "MOVE_TASK"
+                data = @{
+                    id = $targetTask.id
+                    title = $targetTask.title
+                    quadrant = "q2"
+                    oldQuadrant = "q1"
+                }
+            })
+            $replyText = "I've analyzed your Q1 workload ($($q1Active.Count) active tasks) and prepared a proposed action to balance your matrix by moving '$($targetTask.title)' to Q2 Schedule."
+        }
+        elseif ($q3Active.Count -gt 1) {
+            $targetTask = $q3Active[0]
+            $replyText = "Your Q3 Delegate quadrant has $($q3Active.Count) items. I recommend reviewing '$($targetTask.title)' for delegation."
+        }
+        else {
+            $replyText = "Your matrix workload is currently well balanced! Q1 Do First has $($q1Active.Count) active task(s)."
+        }
+    }
+    # 3. Task Decomposition Intent
+    elseif ($lowerMsg -like "*break down*" -or $lowerMsg -like "*decompose*" -or $lowerMsg -like "*subtask*" -or $lowerMsg -like "*split *") {
+        $targetTask = $null
+        foreach ($t in $tasksList) {
+            if (-not $t.completed -and $lowerMsg.Contains($t.title.ToLower())) {
+                $targetTask = $t
+                break
+            }
+        }
+        if (-not $targetTask -and $tasksList.Count -gt 0) {
+            $targetTask = $tasksList[0]
+        }
+
+        if ($targetTask) {
+            [void]$actionsList.Add(@{
+                type = "CREATE_TASK"
+                data = @{
+                    title = "Phase 1: Research & Outline for $($targetTask.title)"
+                    quadrant = "q2"
+                    description = "Subtask created via NOVA decomposition of '$($targetTask.title)'"
+                    mood = $userMood
+                }
+            })
+            [void]$actionsList.Add(@{
+                type = "CREATE_TASK"
+                data = @{
+                    title = "Phase 2: Executive Draft for $($targetTask.title)"
+                    quadrant = "q1"
+                    description = "Subtask created via NOVA decomposition of '$($targetTask.title)'"
+                    mood = $userMood
+                }
+            })
+            $replyText = "I've decomposed '$($targetTask.title)' into 2 actionable sub-tasks. Please review and confirm below."
+        } else {
+            $replyText = "No task found to break down."
+        }
+    }
+    # 4. Natural Language Task Update Intent
+    elseif ($lowerMsg -like "*update *" -or $lowerMsg -like "*rename *" -or $lowerMsg -like "*change title*") {
+        $targetTask = $null
+        foreach ($t in $tasksList) {
+            if ($lowerMsg.Contains($t.title.ToLower())) {
+                $targetTask = $t
+                break
+            }
+        }
+        if (-not $targetTask -and $tasksList.Count -gt 0) {
+            $targetTask = $tasksList[0]
+        }
+
+        if ($targetTask) {
+            $newTitle = $userMsg -replace '(?i)^.*?\b(to|as|title)\s+["'']?', ''
+            $newTitle = $newTitle.Trim().Trim('"').Trim("'").Trim()
+            if ([string]::IsNullOrWhiteSpace($newTitle)) { $newTitle = "$($targetTask.title) (Updated)" }
+
+            [void]$actionsList.Add(@{
+                type = "UPDATE_TASK"
+                data = @{
+                    id = $targetTask.id
+                    title = $newTitle
+                    oldTitle = $targetTask.title
+                    quadrant = $targetTask.quadrant
+                    oldQuadrant = $targetTask.quadrant
+                }
+            })
+            $replyText = "I've prepared a proposed update action for '$($targetTask.title)'. Please review the diff below and confirm."
+        } else {
+            $replyText = "No task found to update."
+        }
+    }
+    # 5. Task Creation Intent
     elseif ($lowerMsg -like "*add *" -or $lowerMsg -like "*create *" -or $lowerMsg -like "*new task*") {
         $extracted = Extract-TaskTitleAndQuadrant -userMsg $userMsg
         $taskTitle = $extracted.title
@@ -306,7 +416,7 @@ You MUST respond ONLY with a single raw valid JSON object:
         })
         $replyText = "I've prepared a proposed action to create '$taskTitle' in $($targetQuad.ToUpper()). Please review and confirm below."
     }
-    # 3. Task Completion Intent
+    # 6. Task Completion Intent
     elseif ($completedTask = Extract-CompleteTaskIntent -userMsg $userMsg -tasksList $tasksList) {
         [void]$actionsList.Add(@{
             type = "TOGGLE_TASK"
@@ -317,7 +427,7 @@ You MUST respond ONLY with a single raw valid JSON object:
         })
         $replyText = "I've prepared an action to mark '$($completedTask.title)' as completed. Please review and confirm below."
     }
-    # 4. Task Deletion Intent
+    # 7. Task Deletion Intent
     elseif ($lowerMsg -like "*delete *" -or $lowerMsg -like "*remove *") {
         $targetTask = $null
         if ($tasksList.Count -gt 0) {
@@ -338,7 +448,7 @@ You MUST respond ONLY with a single raw valid JSON object:
             $replyText = "I couldn't find a task matching that name in your matrix."
         }
     }
-    # 5. Task Movement Intent
+    # 8. Task Movement Intent
     elseif ($lowerMsg -like "*move *" -or $lowerMsg -like "*shift *") {
         $targetQuad = "q2"
         if ($lowerMsg -like "*q1*") { $targetQuad = "q1" }
@@ -364,7 +474,7 @@ You MUST respond ONLY with a single raw valid JSON object:
             $replyText = "You currently have no tasks to move."
         }
     }
-    # 6. Mood-Aware Focus / Recommendation Intent
+    # 9. Mood-Aware Focus / Recommendation Intent
     elseif ($lowerMsg -like "*focus*" -or $lowerMsg -like "*recommend*" -or $lowerMsg -like "*what should*") {
         $q1Count = 0; $q2Count = 0; $q3Count = 0; $q4Count = 0
         foreach ($t in $tasksList) {
@@ -393,7 +503,7 @@ You MUST respond ONLY with a single raw valid JSON object:
     }
     else {
         $count = $tasksList.Count
-        $replyText = "I'm analyzing your $userMood workspace. You currently have $count task(s). Ask me to create, move, complete, or delete any tasks, or ask for recommendations!"
+        $replyText = "I'm analyzing your $userMood workspace. You currently have $count task(s). Ask me to create, move, complete, update, decompose, or balance your tasks!"
     }
 
     return @{

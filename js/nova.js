@@ -342,8 +342,23 @@ export class NovaAssistant {
         headerIcon = '✏️';
         headerTitle = 'Proposed Action: Update Task';
         detailsHTML = `
-          <div><strong>Target Task:</strong> ${this.escapeHTML(data.title || 'Selected task')}</div>
-          <div><strong>New Quadrant:</strong> ${quadLabels[data.quadrant] || data.quadrant}</div>
+          <div><strong>Target Task:</strong> ${this.escapeHTML(data.oldTitle || data.title || 'Selected task')}</div>
+          <div class="nova-diff-container">
+            ${data.oldTitle && data.title && data.oldTitle !== data.title ? `
+              <div class="nova-diff-row">
+                <span><strong>Title:</strong></span>
+                <span class="nova-diff-old">${this.escapeHTML(data.oldTitle)}</span>
+                <span class="nova-diff-arrow">➔</span>
+                <span class="nova-diff-new">${this.escapeHTML(data.title)}</span>
+              </div>` : `<div><strong>New Title:</strong> ${this.escapeHTML(data.title)}</div>`}
+            ${data.oldQuadrant && data.quadrant && data.oldQuadrant !== data.quadrant ? `
+              <div class="nova-diff-row">
+                <span><strong>Quadrant:</strong></span>
+                <span class="nova-diff-old">${quadLabels[data.oldQuadrant] || data.oldQuadrant}</span>
+                <span class="nova-diff-arrow">➔</span>
+                <span class="nova-diff-new">${quadLabels[data.quadrant] || data.quadrant}</span>
+              </div>` : ''}
+          </div>
         `;
         break;
 

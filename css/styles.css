@@ -1596,3 +1596,44 @@ select:focus-visible,
     opacity: 1;
   }
 }
+
+/* Phase 5: Before vs After Diff Preview Styles */
+.nova-diff-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-color);
+}
+
+.nova-diff-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  flex-wrap: wrap;
+}
+
+.nova-diff-old {
+  text-decoration: line-through;
+  color: #fda4af;
+  background: rgba(244, 63, 94, 0.15);
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+}
+
+.nova-diff-arrow {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.nova-diff-new {
+  color: #a7f3d0;
+  background: rgba(16, 185, 129, 0.15);
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  font-weight: 600;
+}
