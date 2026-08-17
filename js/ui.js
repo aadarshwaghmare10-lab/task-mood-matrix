@@ -566,7 +566,11 @@ export class UI {
     const quadrant = this.taskQuadrantInput.value;
     const mood = this.taskMoodInput.value;
 
-    if (!title) return;
+    if (!title) {
+      this.showToast('Task title cannot be empty.', 'warning');
+      if (this.taskTitleInput) this.taskTitleInput.focus();
+      return;
+    }
 
     let newTaskId = null;
 
